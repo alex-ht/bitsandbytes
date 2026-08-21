@@ -859,11 +859,12 @@ def get_4bit_type(typename, device=None, blocksize=64):
     return data
 
 
-# CUDA/C++ 4-bit kernels take `const int n` (int32). numel() == 2**31
-# (e.g. fused MoE expert weights [128, 4096, 4096]) overflows and fails
-# with cudaErrorInvalidArgument. Chunk on a blocksize-aligned split.
+# CUDA/C++ 4-bit kernels take `const int n` (int32). Cap below INT_MAX:
+# 4-bit dequant indexes unpacked elements as `i * 2` in int32, which overflows
+# once n approaches 2**31. 2**30 fits, is divisible by every valid blocksize,
+# and still splits fused MoE weights such as [128, 4096, 4096] == 2**31.
 # Kernel-level int64 indexing is tracked in #1785.
-_INT32_MAX = 2**31 - 1
+_INT32_MAX = 2**30
 
 
 def _max_int32_chunk_numel(blocksize: int) -> int:

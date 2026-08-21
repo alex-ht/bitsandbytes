@@ -702,7 +702,7 @@ class TestQuantize4BitFunctional:
     def test_4bit_quant_large(self, device, dtype, quant_type, blocksize):
         """
         Test that we can successfully quantize a large tensor. Note that the following limitations apply:
-        - CUDA/C++ 4-bit kernels take int32 `n`; tensors with numel() > 2**31 - 1 are
+        - CUDA/C++ 4-bit kernels take int32 `n`; tensors with numel() > 2**30 are
           chunked in `quantize_4bit` / `dequantize_4bit` (see #1785).
         - On CUDA, this test requires ~10GiB of memory for fp32
         - On CPU, there is a significantly higher memory overhead for the quantization, so we skip this test.
@@ -726,6 +726,13 @@ class TestQuantize4BitFunctional:
         assert dq.dtype == dtype
         assert dq.numel() == 2**31 - 1
 
+    def test_4bit_kernel_numel_cap_is_below_int32_max(self):
+        # 4-bit dequant does `i * 2` in int32; 2**31 is not a safe kernel launch.
+        assert F._INT32_MAX == 2**30
+        assert 128 * 4096 * 4096 > F._INT32_MAX
+        for blocksize in (32, 64, 128, 256, 512, 1024, 2048, 4096):
+            assert F._max_int32_chunk_numel(blocksize) == 2**30
+
     @pytest.mark.parametrize("device", get_available_devices())
     @pytest.mark.parametrize("quant_type", ["fp4", "nf4"])
     @pytest.mark.parametrize("blocksize", [64, 128], ids=id_formatter("blocksize"))
@@ -736,7 +743,7 @@ class TestQuantize4BitFunctional:
     ):
         """Chunked 4-bit path must match a single kernel launch.
 
-        Kernels cannot take numel() > int32. Lower the threshold so the
+        Kernels cannot take numel() > 2**30. Lower the threshold so the
         chunked path runs on small tensors instead of allocating 2**31 elements.
         """
         if device == "hpu" and not is_supported_on_hpu(quant_type, dtype):
@@ -750,7 +757,7 @@ class TestQuantize4BitFunctional:
             A, blocksize=blocksize, quant_type=quant_type, compress_statistics=compress_statistics
         )
 
-        monkeypatch.setattr(F, "_INT32_MAX", 2**31 - 1)
+        monkeypatch.setattr(F, "_INT32_MAX", 2**30)
         q_ref, state_ref = F.quantize_4bit(
             A, blocksize=blocksize, quant_type=quant_type, compress_statistics=compress_statistics
         )
