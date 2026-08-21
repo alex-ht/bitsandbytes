@@ -270,12 +270,10 @@ template <typename T, int BLOCK_SIZE, int NUM_PER_TH, int STOCHASTIC, int DATA_T
 //__launch_bounds__(TH, 4)
 __global__ void kQuantizeBlockwise(
     float* code, T* __restrict__ const A, float* absmax, unsigned char* out, float* __restrict__ const rand,
-    const int rand_offset, const int n
+    const int rand_offset, const int64_t n
 ) {
-    // This can overflow, so we clamp to INT32_MAX. We won't have more elements than this.
-    const int n_full = min(gridDim.x * BLOCK_SIZE, INT32_MAX);
-
-    const int base_idx = blockIdx.x * BLOCK_SIZE;
+    const int64_t n_full = static_cast<int64_t>(gridDim.x) * BLOCK_SIZE;
+    const int64_t base_idx = static_cast<int64_t>(blockIdx.x) * BLOCK_SIZE;
     int valid_items = 0;
 
     T vals[NUM_PER_TH];
@@ -311,8 +309,9 @@ __global__ void kQuantizeBlockwise(
         for (int i = threadIdx.x; i < 256; i += blockDim.x)
             smem_code[i] = code[i];
 
-    for (int64_t i = base_idx; i < n_full; i += gridDim.x * BLOCK_SIZE) {
-        valid_items = min(BLOCK_SIZE, static_cast<int>(n - i));
+    for (int64_t i = base_idx; i < n_full; i += n_full) {
+        int64_t remaining = n - i;
+        valid_items = remaining > 0 ? static_cast<int>(min(static_cast<int64_t>(BLOCK_SIZE), remaining)) : 0;
         local_abs_max = -FLT_MAX;
 
         __syncthreads();
@@ -329,8 +328,9 @@ __global__ void kQuantizeBlockwise(
         local_abs_max = BlockReduce(reduce).Reduce(local_abs_max, BNB_MAX_OP, valid_items);
 
         if (threadIdx.x == 0) {
-            smem_absmax_value[0] = 1.0f / local_abs_max;
-            absmax[i / BLOCK_SIZE] = local_abs_max;
+            smem_absmax_value[0] = remaining > 0 ? 1.0f / local_abs_max : 0.0f;
+            if (remaining > 0)
+                absmax[i / BLOCK_SIZE] = local_abs_max;
         }
         __syncthreads();
 
@@ -388,7 +388,7 @@ __global__ void kQuantizeBlockwise(
 template <typename T, int QBLOCK_SIZE, int DATA_TYPE>
 __global__ void kQuantizeBlockwiseSmall(
     float* code, T* __restrict__ const A, float* absmax, unsigned char* out, float* __restrict__ const rand,
-    const int rand_offset, const int n
+    const int rand_offset, const int64_t n
 ) {
     static_assert(QBLOCK_SIZE <= BNB_WARP_SIZE * 2, "QBLOCK_SIZE too large for one warp");
 
@@ -398,7 +398,7 @@ __global__ void kQuantizeBlockwiseSmall(
     constexpr int NUM_QB = THREADS / THREADS_PER_QB;
     constexpr int TOTAL_VALUES = QBLOCK_SIZE * NUM_QB;
 
-    const int base_idx = blockIdx.x * TOTAL_VALUES;
+    const int64_t base_idx = static_cast<int64_t>(blockIdx.x) * TOTAL_VALUES;
 
     T vals[NUM_PER_TH];
     unsigned char qvals[NUM_PER_TH / 2];
@@ -416,11 +416,13 @@ __global__ void kQuantizeBlockwiseSmall(
     __shared__ typename WarpReduce::TempStorage warp_reduce[NUM_QB];
     __shared__ float smem_absmax_value[NUM_QB];
 
-    const int qi = base_idx + qb_id * QBLOCK_SIZE;
+    const int64_t qi = base_idx + static_cast<int64_t>(qb_id) * QBLOCK_SIZE;
     const bool qb_valid = (qi < n);
+    const int64_t remaining = n - base_idx;
+    const int valid_items = remaining > 0 ? static_cast<int>(min(static_cast<int64_t>(TOTAL_VALUES), remaining)) : 0;
 
     __syncthreads();
-    LoadT(loadt).Load(&(A[base_idx]), vals, min(TOTAL_VALUES, n - base_idx), (T)0.0f);
+    LoadT(loadt).Load(&(A[base_idx]), vals, valid_items, (T)0.0f);
 
     local_abs_max = -FLT_MAX;
 #pragma unroll NUM_PER_TH
@@ -432,7 +434,7 @@ __global__ void kQuantizeBlockwiseSmall(
     if (local_tid == 0) {
         if (qb_valid) {
             smem_absmax_value[qb_id] = 1.0f / local_abs_max;
-            absmax[blockIdx.x * NUM_QB + qb_id] = local_abs_max;
+            absmax[static_cast<int64_t>(blockIdx.x) * NUM_QB + qb_id] = local_abs_max;
         } else {
             smem_absmax_value[qb_id] = 0.0f;
         }
@@ -459,17 +461,25 @@ __global__ void kQuantizeBlockwiseSmall(
     }
 
     __syncthreads();
-    StoreChar(storec).Store(&(out[base_idx / 2]), qvals, min((TOTAL_VALUES + 1) / 2, (n - base_idx + 1) / 2));
+    const int64_t packed_remaining = remaining > 0 ? (remaining + 1) / 2 : 0;
+    const int valid_packed = packed_remaining > 0
+                                 ? static_cast<int>(min(static_cast<int64_t>((TOTAL_VALUES + 1) / 2), packed_remaining))
+                                 : 0;
+    StoreChar(storec).Store(&(out[base_idx / 2]), qvals, valid_packed);
 }
 
 template <typename T, int TILE_SIZE, int THREADS, int NUM_PER_TH, int DATA_TYPE>
 __global__ void
-    kDequantizeBlockwise(float* code, unsigned char* A, float* absmax, T* out, const int blocksize, const int n) {
+    kDequantizeBlockwise(float* code, unsigned char* A, float* absmax, T* out, const int blocksize, const int64_t n) {
 
-    const int n_load = (gridDim.x * TILE_SIZE);
+    const int64_t n_load = static_cast<int64_t>(gridDim.x) * TILE_SIZE;
+    const int64_t base_idx = static_cast<int64_t>(blockIdx.x) * TILE_SIZE;
+    const int absmax_shift = 31 - __clz(blocksize);
+    const int64_t packed_n = (DATA_TYPE > 0) ? (n + 1) / 2 : n;
+    constexpr int64_t store_tile = static_cast<int64_t>(TILE_SIZE) * ((DATA_TYPE > 0) ? 2 : 1);
+
     int valid_items_load = 0;
     int valid_items_store = 0;
-    const int base_idx = (blockIdx.x * TILE_SIZE);
 
     T vals[NUM_PER_TH * ((DATA_TYPE > 0) ? 2 : 1)];
     unsigned char qvals[NUM_PER_TH];
@@ -482,20 +492,29 @@ __global__ void
     __shared__ typename LoadChar::TempStorage loadchar;
     __shared__ typename StoreT::TempStorage storet;
 
-    for (int i = base_idx; i < n_load; i += gridDim.x * TILE_SIZE) {
-        if (DATA_TYPE > 0) {
-            // Cast n to int64_t to avoid overflow for large n
-            valid_items_load = min(TILE_SIZE, static_cast<int>((static_cast<int64_t>(n) + 1) / 2) - i);
-            valid_items_store = min(TILE_SIZE * 2, n - i * 2);
-        } else {
-            valid_items_load = min(TILE_SIZE, n - i);
-            valid_items_store = valid_items_load;
-        }
+    for (int64_t i = base_idx; i < n_load; i += n_load) {
+        int64_t vload = packed_n - i;
+        int64_t vstore = (DATA_TYPE > 0) ? n - i * 2 : vload;
+        if (vload < 0)
+            vload = 0;
+        if (vstore < 0)
+            vstore = 0;
+        if (vload > TILE_SIZE)
+            vload = TILE_SIZE;
+        if (vstore > store_tile)
+            vstore = store_tile;
+        valid_items_load = static_cast<int>(vload);
+        valid_items_store = static_cast<int>(vstore);
 
-        // Since blocksize will always be a power-of-2, we avoid more expensive
-        // division by the blocksize and instead use a shift operation.
-        // This is equivalent to (i+threadId.x*NUM_PER_TH)/blocksize.
-        local_abs_max = __ldg(&absmax[(i + threadIdx.x * NUM_PER_TH) >> (31 - __clz(blocksize))]);
+        // Threads past a partial last tile still compute an absmax index.
+        // Clamp so they cannot read past the absmax allocation (IMA at
+        // numel == 2**31 - 64 and other non-tile-aligned sizes).
+        int64_t packed_idx = i + static_cast<int64_t>(threadIdx.x) * NUM_PER_TH;
+        if (packed_n > 0 && packed_idx >= packed_n)
+            packed_idx = packed_n - 1;
+        else if (packed_idx < 0)
+            packed_idx = 0;
+        local_abs_max = __ldg(&absmax[packed_idx >> absmax_shift]);
 
         __syncthreads();
         LoadChar(loadchar).Load(&(A[i]), qvals, valid_items_load, 128);
@@ -1705,7 +1724,7 @@ template __global__ void kOptimizer32bit2State<bnb_bfloat16, ADEMAMIX>(
 #define MAKE_kQuantizeBlockwise(dtype, blocksize, num_per_thread, stochastic, data_type_name)                          \
     template __global__ void kQuantizeBlockwise<dtype, blocksize, num_per_thread, stochastic, data_type_name>(         \
         float* code, dtype* __restrict__ const A, float* absmax, unsigned char* out, float* __restrict__ const rand,   \
-        const int rand_offset, const int n                                                                             \
+        const int rand_offset, const int64_t n                                                                         \
     );
 
 MAKE_kQuantizeBlockwise(half, 4096, 4, 0, General8bit)
@@ -1780,7 +1799,7 @@ MAKE_kQuantizeBlockwise(bnb_bfloat16, 64, 2, 0, NF4)
 #define MAKE_kQuantizeBlockwiseSmall(dtype, qblock_size, data_type_name)                                               \
     template __global__ void kQuantizeBlockwiseSmall<dtype, qblock_size, data_type_name>(                              \
         float* code, dtype* __restrict__ const A, float* absmax, unsigned char* out, float* __restrict__ const rand,   \
-        const int rand_offset, const int n                                                                             \
+        const int rand_offset, const int64_t n                                                                         \
     );
 
 // QBLOCK_SIZE=32 instantiations
@@ -1800,31 +1819,31 @@ MAKE_kQuantizeBlockwiseSmall(float, 64, NF4)
 MAKE_kQuantizeBlockwiseSmall(bnb_bfloat16, 64, NF4)
 
 template __global__ void kDequantizeBlockwise<half, 512, 64, 8, FP4>(
-    float* code, unsigned char* A, float* absmax, half* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, half* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<half, 512, 64, 8, General8bit>(
-    float* code, unsigned char* A, float* absmax, half* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, half* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<half, 512, 64, 8, NF4>(
-    float* code, unsigned char* A, float* absmax, half* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, half* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<float, 512, 64, 8, FP4>(
-    float* code, unsigned char* A, float* absmax, float* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, float* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<float, 512, 64, 8, General8bit>(
-    float* code, unsigned char* A, float* absmax, float* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, float* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<float, 512, 64, 8, NF4>(
-    float* code, unsigned char* A, float* absmax, float* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, float* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<bnb_bfloat16, 512, 64, 8, FP4>(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<bnb_bfloat16, 512, 64, 8, General8bit>(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, const int blocksize, const int64_t n
 );
 template __global__ void kDequantizeBlockwise<bnb_bfloat16, 512, 64, 8, NF4>(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, const int blocksize, const int n
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, const int blocksize, const int64_t n
 );
 
 #define MAKE_OptimizerStatic8bit2StateBlockwise(oname, gtype, block_size, num_per_thread)                              \

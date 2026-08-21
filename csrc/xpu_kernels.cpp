@@ -104,18 +104,23 @@ SYCL_EXTERNAL void kDequantizeBlockwise<T, TILE_SIZE, NUM_PER_TH, DATA_TYPE>::op
     uint8_t qvals[NUM_PER_TH];
     T vals[NUM_PER_TH * ((DATA_TYPE > 0) ? 2 : 1)];
 
+    const int64_t packed_n = (DATA_TYPE > 0) ? (n + 1) / 2 : n;
     if (DATA_TYPE > 0) {
-        // Cast n to int64_t to avoid overflow for large n (same as CUDA)
-        local_load_idx = sycl::min(static_cast<int64_t>(TILE_SIZE), (static_cast<int64_t>(n) + 1) / 2 - base_idx);
-        local_store_idx = sycl::min(static_cast<int64_t>(TILE_SIZE * 2), static_cast<int64_t>(n) - base_idx * 2);
+        local_load_idx = sycl::max(int64_t(0), sycl::min(static_cast<int64_t>(TILE_SIZE), packed_n - base_idx));
+        local_store_idx = sycl::max(int64_t(0), sycl::min(static_cast<int64_t>(TILE_SIZE * 2), n - base_idx * 2));
     } else {
-        local_load_idx = sycl::min(static_cast<int64_t>(TILE_SIZE), static_cast<int64_t>(n) - base_idx);
+        local_load_idx = sycl::max(int64_t(0), sycl::min(static_cast<int64_t>(TILE_SIZE), n - base_idx));
         local_store_idx = local_load_idx;
     }
 
-    // Avoid expensive division by the blocksize (as blocksize will always be a
-    // power-of-2)
-    local_abs_max = absmax[(base_idx + local_idx) >> (31 - std::countl_zero<unsigned int>(blocksize))];
+    // Threads past a partial last tile still compute an absmax index. Clamp so
+    // they cannot read past the absmax allocation.
+    int64_t packed_idx = base_idx + local_idx;
+    if (packed_n > 0 && packed_idx >= packed_n)
+        packed_idx = packed_n - 1;
+    else if (packed_idx < 0)
+        packed_idx = 0;
+    local_abs_max = absmax[packed_idx >> (31 - std::countl_zero<unsigned int>(blocksize))];
 
     if (local_idx + NUM_PER_TH < local_load_idx) {
         reinterpret_cast<sycl::vec<uint8_t, NUM_PER_TH>(&)[NUM_PER_TH]>(qvals)[0] =

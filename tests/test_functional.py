@@ -702,8 +702,8 @@ class TestQuantize4BitFunctional:
     def test_4bit_quant_large(self, device, dtype, quant_type, blocksize):
         """
         Test that we can successfully quantize a large tensor. Note that the following limitations apply:
-        - CUDA/C++ 4-bit kernels take int32 `n`; tensors with numel() > 2**30 are
-          chunked in `quantize_4bit` / `dequantize_4bit` (see #1785).
+        - CUDA/C++ 4-bit kernels take int64_t `n`. Python still chunks past the
+          CUDA grid limit (see #1785).
         - On CUDA, this test requires ~10GiB of memory for fp32
         - On CPU, there is a significantly higher memory overhead for the quantization, so we skip this test.
         - Verification of the accuracy for dequantization has too high memory overhead for this test.
@@ -726,12 +726,13 @@ class TestQuantize4BitFunctional:
         assert dq.dtype == dtype
         assert dq.numel() == 2**31 - 1
 
-    def test_4bit_kernel_numel_cap_is_below_int32_max(self):
-        # 4-bit dequant does `i * 2` in int32; 2**31 is not a safe kernel launch.
-        assert F._INT32_MAX == 2**30
-        assert 128 * 4096 * 4096 > F._INT32_MAX
+    def test_4bit_kernel_numel_cap_covers_int32_boundary(self):
+        # int64 indexing + ctypes must accept fused MoE weights at numel == 2**31
+        # without Python chunking. Chunking is only a CUDA grid-limit safety net.
+        assert F._INT32_MAX > 2**31
+        assert 128 * 4096 * 4096 <= F._INT32_MAX
         for blocksize in (32, 64, 128, 256, 512, 1024, 2048, 4096):
-            assert F._max_int32_chunk_numel(blocksize) == 2**30
+            assert F._max_int32_chunk_numel(blocksize) > 2**31
 
     @pytest.mark.parametrize("device", get_available_devices())
     @pytest.mark.parametrize("quant_type", ["fp4", "nf4"])
@@ -743,8 +744,8 @@ class TestQuantize4BitFunctional:
     ):
         """Chunked 4-bit path must match a single kernel launch.
 
-        Kernels cannot take numel() > 2**30. Lower the threshold so the
-        chunked path runs on small tensors instead of allocating 2**31 elements.
+        Lower the chunk threshold so the chunked path runs on small tensors
+        instead of allocating 2**31 elements.
         """
         if device == "hpu" and not is_supported_on_hpu(quant_type, dtype):
             pytest.skip("This configuration is not supported on HPU.")
@@ -795,6 +796,84 @@ class TestQuantize4BitFunctional:
         dq = F.dequantize_4bit(q, state, out=dq_out)
         assert dq.data_ptr() == dq_out.data_ptr()
         torch.testing.assert_close(dq, F.dequantize_4bit(q, state))
+
+    @pytest.mark.parametrize("device", get_available_devices(no_cpu=True))
+    @pytest.mark.skipif(not get_available_devices(no_cpu=True), reason="No accelerator device")
+    @pytest.mark.parametrize("n", [1024 + 64, 2**20 + 64, 2**24 - 64])
+    def test_4bit_dequant_partial_last_tile(self, device, n):
+        """NF4 dequant used to IMA when n is blocksize-aligned but not tile-aligned.
+
+        Idle threads in the last dequant tile indexed past absmax. Small n
+        often survived because the allocator over-provisioned; 2**24-64 makes
+        absmax large enough that an OOB read is a real illegal memory access.
+        """
+        if device == "hpu" and not is_supported_on_hpu("nf4", torch.bfloat16):
+            pytest.skip("This configuration is not supported on HPU.")
+
+        blocksize = 64
+        dtype = torch.bfloat16
+        x = torch.randn(n, device=device, dtype=dtype)
+        q, state = F.quantize_4bit(x, blocksize=blocksize, quant_type="nf4")
+        y = F.dequantize_4bit(q, state)
+        if device == "cuda":
+            torch.cuda.synchronize()
+        assert y.shape == x.shape
+        assert y.dtype == dtype
+        # Spot-check the tail, which sits in the partial last tile.
+        err = (y[-blocksize:] - x[-blocksize:]).abs().float().mean()
+        assert err.item() < 0.11
+
+    @pytest.mark.parametrize("device", get_available_devices(no_cpu=True))
+    @pytest.mark.skipif(not get_available_devices(no_cpu=True), reason="No accelerator device")
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            (2**30,),
+            (2**31 - 64,),
+            (2**31,),
+            (128, 4096, 4096),
+        ],
+        ids=["2**30", "2**31-64", "2**31", "mistral4_gate_up_proj"],
+    )
+    def test_4bit_nf4_roundtrip_int32_boundary(self, device, shape):
+        """Mistral 4 gate_up_proj is numel == 2**31; down_proj is 2**30.
+
+        Requires several GiB. Skips when the device cannot allocate.
+        """
+        if device not in ("cuda", "xpu"):
+            pytest.skip("This test is only for CUDA and XPU devices due to memory constraints.")
+
+        dtype = torch.bfloat16
+        n = math.prod(shape)
+        itemsize = torch.tensor([], dtype=dtype).element_size()
+        packed = (n + 1) // 2
+        absmax_bytes = ((n + 63) // 64) * 4
+        peak = max(n * itemsize + packed + absmax_bytes, packed + absmax_bytes + n * itemsize) + (512 << 20)
+
+        if device == "cuda":
+            free, _ = torch.cuda.mem_get_info()
+            if free < peak:
+                pytest.skip(f"Need ~{peak / (1 << 30):.1f} GiB free, have {free / (1 << 30):.1f} GiB")
+
+        x = torch.randn(*shape, device=device, dtype=dtype)
+        q, state = F.quantize_4bit(x, blocksize=64, quant_type="nf4")
+        assert tuple(state.shape) == tuple(shape)
+        del x
+        y = F.dequantize_4bit(q, state)
+        if device == "cuda":
+            torch.cuda.synchronize()
+        assert tuple(y.shape) == tuple(shape)
+        assert y.dtype == dtype
+        assert y.numel() == n
+        del y
+
+        # Same sizes must also work on the torch.ops path used by gemm fallback
+        # (bypasses Python chunking in F.dequantize_4bit).
+        dq_ops = torch.ops.bitsandbytes.dequantize_4bit.default(q, state.absmax, 64, "nf4", shape, dtype)
+        if device == "cuda":
+            torch.cuda.synchronize()
+        assert tuple(dq_ops.shape) == tuple(shape)
+        assert dq_ops.dtype == dtype
 
     # @pytest.mark.parametrize("quant_type", ['fp4', 'nf4'])
     @pytest.mark.parametrize("quant_type", ["nf4"])

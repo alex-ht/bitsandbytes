@@ -3,6 +3,7 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
+#include <cstdint>
 #if BUILD_CUDA
 #include <cuda_runtime_api.h>
 #include <ops.cuh>
@@ -124,98 +125,106 @@ MAKE_BLOCKWISE8(ademamix, ADEMAMIX, half, fp16)
 MAKE_BLOCKWISE8(ademamix, ADEMAMIX, bnb_bfloat16, bf16)
 MAKE_BLOCKWISE8(ademamix, ADEMAMIX, float, fp32)
 
-void quantizeBlockwise_fp16(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void quantizeBlockwise_fp16(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int64_t n) {
     quantizeBlockwise<half, 0, General8bit>(code, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
-void quantizeBlockwise_fp16_fp4(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void quantizeBlockwise_fp16_fp4(
+    float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
+) {
     quantizeBlockwise<half, 0, FP4>(nullptr, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
-void quantizeBlockwise_fp16_nf4(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void quantizeBlockwise_fp16_nf4(
+    float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
+) {
     quantizeBlockwise<half, 0, NF4>(nullptr, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
 void quantizeBlockwise_bf16(
-    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise<bnb_bfloat16, 0, General8bit>(code, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
 void quantizeBlockwise_bf16_fp4(
-    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise<bnb_bfloat16, 0, FP4>(nullptr, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
 void quantizeBlockwise_bf16_nf4(
-    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise<bnb_bfloat16, 0, NF4>(nullptr, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
-void quantizeBlockwise_fp32(float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void quantizeBlockwise_fp32(float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int64_t n) {
     quantizeBlockwise<float, 0, General8bit>(code, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
-void quantizeBlockwise_fp32_fp4(float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void quantizeBlockwise_fp32_fp4(
+    float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
+) {
     quantizeBlockwise<float, 0, FP4>(nullptr, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
-void quantizeBlockwise_fp32_nf4(float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void quantizeBlockwise_fp32_nf4(
+    float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
+) {
     quantizeBlockwise<float, 0, NF4>(nullptr, A, absmax, out, nullptr, 0, blocksize, n);
 }
 
 void dequantizeBlockwise_fp16(
-    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<half, General8bit>(code, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp16_fp4(
-    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<half, FP4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp16_nf4(
-    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<half, NF4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp32(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<float, General8bit>(code, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp32_fp4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<float, FP4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp32_nf4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<float, NF4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_bf16(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<bnb_bfloat16, General8bit>(code, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_bf16_fp4(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<bnb_bfloat16, FP4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_bf16_nf4(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise<bnb_bfloat16, NF4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
@@ -246,57 +255,57 @@ int igemmlt_8_rowscale(
 #if BUILD_XPU
 
 void dequantizeBlockwise_fp16(
-    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise<sycl::half, General8bit>(code, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp16_fp4(
-    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise<sycl::half, FP4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp16_nf4(
-    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise<sycl::half, NF4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp32(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise<float, General8bit>(code, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp32_fp4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise<float, FP4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_fp32_nf4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise<float, NF4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_bf16(
-    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int n,
+    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int64_t n,
     sycl::queue* stream
 ) {
     dequantizeBlockwise<sycl::ext::oneapi::bfloat16, General8bit>(code, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_bf16_fp4(
-    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int n,
+    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int64_t n,
     sycl::queue* stream
 ) {
     dequantizeBlockwise<sycl::ext::oneapi::bfloat16, FP4>(nullptr, A, absmax, out, blocksize, n, stream);
 }
 
 void dequantizeBlockwise_bf16_nf4(
-    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int n,
+    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int64_t n,
     sycl::queue* stream
 ) {
     dequantizeBlockwise<sycl::ext::oneapi::bfloat16, NF4>(nullptr, A, absmax, out, blocksize, n, stream);
@@ -344,101 +353,107 @@ extern "C" {
 #if BUILD_CUDA || BUILD_HIP
 
 void cdequantize_blockwise_fp16_fp4(
-    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_fp16_fp4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp16(
-    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_fp16(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp16_nf4(
-    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, half* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_fp16_nf4(code, A, absmax, out, blocksize, n, stream);
 }
 
-void cquantize_blockwise_fp16(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void cquantize_blockwise_fp16(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int64_t n) {
     quantizeBlockwise_fp16(code, A, absmax, out, blocksize, n);
 }
 
-void cquantize_blockwise_fp16_fp4(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void cquantize_blockwise_fp16_fp4(
+    float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
+) {
     quantizeBlockwise_fp16_fp4(code, A, absmax, out, blocksize, n);
 }
 
-void cquantize_blockwise_fp16_nf4(float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void cquantize_blockwise_fp16_nf4(
+    float* code, half* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
+) {
     quantizeBlockwise_fp16_nf4(code, A, absmax, out, blocksize, n);
 }
 
-void cquantize_blockwise_fp32(float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int n) {
+void cquantize_blockwise_fp32(
+    float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
+) {
     quantizeBlockwise_fp32(code, A, absmax, out, blocksize, n);
 }
 
 void cquantize_blockwise_fp32_fp4(
-    float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise_fp32_fp4(code, A, absmax, out, blocksize, n);
 }
 
 void cquantize_blockwise_fp32_nf4(
-    float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, float* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise_fp32_nf4(code, A, absmax, out, blocksize, n);
 }
 
 void cdequantize_blockwise_fp32(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_fp32(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp32_fp4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_fp32_fp4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp32_nf4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_fp32_nf4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cquantize_blockwise_bf16(
-    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise_bf16(code, A, absmax, out, blocksize, n);
 }
 
 void cquantize_blockwise_bf16_fp4(
-    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise_bf16_fp4(code, A, absmax, out, blocksize, n);
 }
 
 void cquantize_blockwise_bf16_nf4(
-    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int n
+    float* code, bnb_bfloat16* A, float* absmax, unsigned char* out, int blocksize, const int64_t n
 ) {
     quantizeBlockwise_bf16_nf4(code, A, absmax, out, blocksize, n);
 }
 
 void cdequantize_blockwise_bf16(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_bf16(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_bf16_fp4(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_bf16_fp4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_bf16_nf4(
-    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int n, cudaStream_t stream
+    float* code, unsigned char* A, float* absmax, bnb_bfloat16* out, int blocksize, const int64_t n, cudaStream_t stream
 ) {
     dequantizeBlockwise_bf16_nf4(code, A, absmax, out, blocksize, n, stream);
 }
@@ -617,57 +632,57 @@ void cgemm_4bit_inference_naive_fp32(
 #if BUILD_XPU
 
 void cdequantize_blockwise_fp16_fp4(
-    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise_fp16_fp4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp16(
-    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise_fp16(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp16_nf4(
-    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, sycl::half* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise_fp16_nf4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp32(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise_fp32(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp32_fp4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise_fp32_fp4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_fp32_nf4(
-    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int n, sycl::queue* stream
+    float* code, unsigned char* A, float* absmax, float* out, int blocksize, const int64_t n, sycl::queue* stream
 ) {
     dequantizeBlockwise_fp32_nf4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_bf16(
-    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int n,
+    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int64_t n,
     sycl::queue* stream
 ) {
     dequantizeBlockwise_bf16(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_bf16_fp4(
-    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int n,
+    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int64_t n,
     sycl::queue* stream
 ) {
     dequantizeBlockwise_bf16_fp4(code, A, absmax, out, blocksize, n, stream);
 }
 
 void cdequantize_blockwise_bf16_nf4(
-    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int n,
+    float* code, unsigned char* A, float* absmax, sycl::ext::oneapi::bfloat16* out, int blocksize, const int64_t n,
     sycl::queue* stream
 ) {
     dequantizeBlockwise_bf16_nf4(code, A, absmax, out, blocksize, n, stream);

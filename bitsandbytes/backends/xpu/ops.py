@@ -43,7 +43,7 @@ def _dequantize_4bit_impl(
         get_ptr(absmax),
         get_ptr(out),
         ct.c_int(blocksize),
-        ct.c_int(out.numel()),
+        ct.c_int64(out.numel()),
         _get_tensor_stream(A),
     )
     if dtype == torch.bfloat16:
@@ -74,7 +74,7 @@ def _dequantize_blockwise_impl(
         get_ptr(absmax),
         get_ptr(out),
         ct.c_int(blocksize),
-        ct.c_int(A.numel()),
+        ct.c_int64(A.numel()),
         _get_tensor_stream(A),
     )
     if dtype == torch.float16:

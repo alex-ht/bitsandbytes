@@ -24,7 +24,7 @@ def _setup_ctypes(names, argtypes, restype=None):
 _setup_ctypes(
     [f"cdequantize_blockwise_{d}_{q}" for d in ("fp32", "bf16", "fp16") for q in ("nf4", "fp4")]
     + [f"cdequantize_blockwise_{d}" for d in ("fp32", "bf16", "fp16")],
-    [ct.c_void_p] * 4 + [ct.c_int32, ct.c_int32, ct.c_void_p],
+    [ct.c_void_p] * 4 + [ct.c_int32, ct.c_int64, ct.c_void_p],
 )
 
 # 4-bit GEMM: (A, B, absmax, absmax_8bit, absmax_code, absmax_offset, out, bias, M, N, K, blocksize, quant_type, stream)
@@ -62,7 +62,7 @@ _setup_ctypes(
 _setup_ctypes(
     [f"cquantize_blockwise_{d}_{q}" for d in ("fp32", "bf16", "fp16") for q in ("nf4", "fp4")]
     + [f"cquantize_blockwise_{d}" for d in ("fp32", "bf16", "fp16")],
-    [ct.c_void_p] * 4 + [ct.c_int32, ct.c_int32],
+    [ct.c_void_p] * 4 + [ct.c_int32, ct.c_int64],
 )
 
 

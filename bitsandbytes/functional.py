@@ -859,12 +859,12 @@ def get_4bit_type(typename, device=None, blocksize=64):
     return data
 
 
-# CUDA/C++ 4-bit kernels take `const int n` (int32). Cap below INT_MAX:
-# 4-bit dequant indexes unpacked elements as `i * 2` in int32, which overflows
-# once n approaches 2**31. 2**30 fits, is divisible by every valid blocksize,
-# and still splits fused MoE weights such as [128, 4096, 4096] == 2**31.
-# Kernel-level int64 indexing is tracked in #1785.
-_INT32_MAX = 2**30
+# CUDA/C++ 4-bit kernels and ctypes take int64_t n. Chunk only if a single
+# launch would overflow CUDA gridDim.x (max 2**31-1). The small-blocksize
+# quantize kernel maps one block per `blocksize` elements (minimum 32).
+_MAX_4BIT_KERNEL_NUMEL = (2**31 - 1) * 32
+# Alias so tests can still monkeypatch the chunk threshold.
+_INT32_MAX = _MAX_4BIT_KERNEL_NUMEL
 
 
 def _max_int32_chunk_numel(blocksize: int) -> int:
